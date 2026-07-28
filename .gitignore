@@ -1,0 +1,14 @@
+# Local Go toolchain (large, machine-specific — fetched during setup)
+.toolchain/
+
+# Compiled fingerprinter binary (rebuild with ./build.sh)
+fp/slowquery-fingerprint
+
+# Slow-query data: input export and generated report (contain production data)
+report.json
+report.md
+*.json.gz
+
+# Go build/test scratch
+fp/*.test
+fp/*.out
