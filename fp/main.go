@@ -21,6 +21,7 @@ import (
 
 type row struct {
 	Timestamp    string `json:"@timestamp"`
+	User         string `json:"User"`
 	QueryTime    string `json:"Query_time"`
 	LockTime     string `json:"Lock_time"`
 	RowsSent     string `json:"Rows_sent"`
@@ -40,6 +41,7 @@ type group struct {
 	firstSeen      string
 	lastSeen       string
 	parsed         bool // false if this group was fingerprinted via regex fallback
+	users          map[string]int
 }
 
 func atof(s string) float64 {
@@ -86,6 +88,32 @@ func f2(f float64, d int) string {
 	return whole + "." + fs
 }
 
+// formatUsers renders a group's users sorted by frequency, e.g. "app (30), admin-panel (15)".
+func formatUsers(users map[string]int) string {
+	if len(users) == 0 {
+		return "—"
+	}
+	type uc struct {
+		name  string
+		count int
+	}
+	list := make([]uc, 0, len(users))
+	for name, count := range users {
+		list = append(list, uc{name, count})
+	}
+	sort.SliceStable(list, func(i, j int) bool {
+		if list[i].count != list[j].count {
+			return list[i].count > list[j].count
+		}
+		return list[i].name < list[j].name
+	})
+	parts := make([]string, 0, len(list))
+	for _, u := range list {
+		parts = append(parts, fmt.Sprintf("%s (%s)", u.name, humanInt(float64(u.count))))
+	}
+	return strings.Join(parts, ", ")
+}
+
 func main() {
 	args := os.Args[1:]
 	exeDir, _ := os.Getwd()
@@ -129,12 +157,15 @@ func main() {
 		}
 		g := groups[fp]
 		if g == nil {
-			g = &group{fingerprint: fp, sample: r.Query, firstSeen: r.Timestamp, lastSeen: r.Timestamp, parsed: ok}
+			g = &group{fingerprint: fp, sample: r.Query, firstSeen: r.Timestamp, lastSeen: r.Timestamp, parsed: ok, users: map[string]int{}}
 			groups[fp] = g
 		}
 		qt := atof(r.QueryTime)
 		g.count++
 		g.totalQueryTime += qt
+		if r.User != "" {
+			g.users[r.User]++
+		}
 		if qt > g.maxQueryTime {
 			g.maxQueryTime = qt
 		}
@@ -184,6 +215,7 @@ func main() {
 		fmt.Fprintf(&b, "- **Rows examined:** max %s\n", f2(g.maxRowsExamined, 0))
 		fmt.Fprintf(&b, "- **Rows sent:** max %s\n", f2(g.maxRowsSent, 0))
 		fmt.Fprintf(&b, "- **Lock time:** max %ss\n", f2(g.maxLockTime, 4))
+		fmt.Fprintf(&b, "- **User:** %s\n", formatUsers(g.users))
 		seen := "—"
 		if g.firstSeen != "" {
 			seen = g.firstSeen + " → " + g.lastSeen
