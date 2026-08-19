@@ -47,10 +47,25 @@ fallback.
 
 ## Output format
 
-`report.md` is a flat list of matching shapes (count ≥ threshold), ranked by
-count. Per entry: occurrence count, max/total query time, max rows examined, max
-rows sent, max lock time, first/last seen, and a sample of the query. Only
-observed maxima/totals from the source rows are shown — no computed averages.
+`report.md` opens with a two-line header:
+
+```
+slow queries for - August 18, 2026
+
+total slow queries - [1,485](<CloudWatch Log Analytics link>)
+```
+
+The date is the day the export actually covers (the most common date among the
+rows' timestamps, so a few stragglers spilling over midnight don't skew it). The
+total-count link opens CloudWatch Log Analytics with the same slow-query search,
+scoped to that day's full 24h window (IST midnight-to-midnight, expressed as UTC
+`START`/`END`).
+
+Below that, `report.md` is a flat list of matching shapes (count ≥ threshold),
+ranked by count. Per entry: occurrence count, max/total query time, max rows
+examined, max rows sent, max lock time, first/last seen, and a sample of the
+query. Only observed maxima/totals from the source rows are shown — no computed
+averages.
 
 ## Layout
 

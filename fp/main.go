@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type row struct {
@@ -114,6 +115,54 @@ func formatUsers(users map[string]int) string {
 	return strings.Join(parts, ", ")
 }
 
+// cloudwatchLinkTemplate is a CloudWatch Log Analytics deep link for the slow-query
+// log group, pre-baked for the day 2026-08-18 (IST). The four date stamps below
+// (two in the active query's START/END, two stale ones left over in the "from"
+// back-navigation fragment) get swapped out for the report's actual date range by
+// buildCloudWatchLink. Everything else — fields, filters, sort, queryId — is fixed.
+const cloudwatchLinkTemplate = `https://us-west-2.console.aws.amazon.com/cloudwatch/home?region=us-west-2#log-analytics?active=%7E%27a&a.id=%7E%27eb5ff26c-90d8-4a04-bfcd-21f965d8cbd4&a.pos=%7E%270&a.label=%7E%27Query*201&a.type=%7E%27query&a.tz=%7E%27Local&a.query=%7E%27SOURCE*20*22*2faws*2frds*2fcluster*2fleo-cluster*2fslowquery*22*20START*3d2026-08-17T18*3a30*3a00.000Z*20END*3d2026-08-18T18*3a29*3a59.000Z*20*7c*0afields*20*40timestamp*0a*7c*20filter*20*40message*20like*20*2f*23*20Query_time*2f*0a*7c*20filter*20*40message*20not*20like*20*2fsh_read*2f*0a*7c*20filter*20*40message*20not*20like*20*2ftools_readonly*2f*0a*7c*20filter*20*40message*20not*20like*20*2fLIMIT*20500*20OFFSET*2f*0a*7c*20filter*20*40message*20not*20like*20*2fINSERT*2f*0a*7c*20filter*20*40message*20not*20like*20*2fDELETE*2f*0a*23*20*7c*20stats*20count*28*2a*29*0a*7c*20parse*20*40message*20*2f*23*20User*40Host*3a*20*28*3f*3cUser*3e*5cS*2b*29*5c*5b*5cS*2b*5c*5d*20*40*20*20*5c*5b*28*3f*3cHost*3e*5b*5e*5c*5d*5d*2b*29*5c*5d*20*20Id*3a*2f*0a*7c*20parse*20*40message*20*2f*23*20Query_time*3a*20*28*3f*3cQuery_time*3e*5cS*2b*29*20*20Lock_time*3a*20*28*3f*3cLock_time*3e*5cS*2b*29*20Rows_sent*3a*20*28*3f*3cRows_sent*3e*5cS*2b*29*20*20Rows_examined*3a*20*28*3f*3cRows_examined*3e*5cS*2b*29*5cn*28*3f*3cQuery*3e*5b*5e*23*5d.*2a*29*2f*0a*7c*20sort*20User*20desc*0a*7c*20limit*2010000&from=%23logsV2%3Alogs-insights%3FqueryDetail%3D~(end~'2026-06-15T18*3a29*3a59.000Z~start~'2026-06-14T18*3a30*3a00.000Z~timeType~'ABSOLUTE~tz~'LOCAL~editorString~'fields*20*40timestamp*0a*7c*20filter*20*40message*20like*20*2f*23*20Query_time*2f*0a*7c*20filter*20*40message*20not*20like*20*2fsh_read*2f*0a*7c*20filter*20*40message*20not*20like*20*2ftools_readonly*2f*0a*7c*20filter*20*40message*20not*20like*20*2fLIMIT*20500*20OFFSET*2f*0a*7c*20filter*20*40message*20not*20like*20*2fINSERT*2f*0a*7c*20filter*20*40message*20not*20like*20*2fDELETE*2f*0a*23*20*7c*20stats*20count*28*2a*29*0a*7c*20parse*20*40message*20*2f*23*20User*40Host*3a*20*28*3f*3cUser*3e*5cS*2b*29*5c*5b*5cS*2b*5c*5d*20*40*20*20*5c*5b*28*3f*3cHost*3e*5b*5e*5c*5d*5d*2b*29*5c*5d*20*20Id*3a*2f*0a*7c*20parse*20*40message*20*2f*23*20Query_time*3a*20*28*3f*3cQuery_time*3e*5cS*2b*29*20*20Lock_time*3a*20*28*3f*3cLock_time*3e*5cS*2b*29*20Rows_sent*3a*20*28*3f*3cRows_sent*3e*5cS*2b*29*20*20Rows_examined*3a*20*28*3f*3cRows_examined*3e*5cS*2b*29*5cn*28*3f*3cQuery*3e*5b*5e*23*5d.*2a*29*2f*0a*7c*20sort*20Query_time*20desc*0a*7c*20limit*2010000~queryId~'eb5ff26c-90d8-4a04-bfcd-21f965d8cbd4~source~(~'*2faws*2frds*2fcluster*2fleo-cluster*2fslowquery)~lang~'CWLI~logClass~'STANDARD~queryBy~'logGroupName))`
+
+// buildCloudWatchLink returns cloudwatchLinkTemplate with its date stamps replaced
+// so the query window covers reportDate's full IST day (reportDate-1 18:30:00 UTC
+// through reportDate 18:29:59 UTC).
+func buildCloudWatchLink(reportDate time.Time) string {
+	end := reportDate.Format("2006-01-02")
+	start := reportDate.AddDate(0, 0, -1).Format("2006-01-02")
+	link := cloudwatchLinkTemplate
+	link = strings.ReplaceAll(link, "2026-08-17", start)
+	link = strings.ReplaceAll(link, "2026-08-18", end)
+	link = strings.ReplaceAll(link, "2026-06-14", start)
+	link = strings.ReplaceAll(link, "2026-06-15", end)
+	return link
+}
+
+// modeDate returns the most frequently occurring YYYY-MM-DD prefix among the
+// rows' timestamps — i.e. the day the export is actually reporting on, robust to
+// a handful of stragglers spilling over a day boundary.
+func modeDate(rows []row) (time.Time, bool) {
+	counts := map[string]int{}
+	for _, r := range rows {
+		if len(r.Timestamp) >= 10 {
+			counts[r.Timestamp[:10]]++
+		}
+	}
+	best := ""
+	bestCount := 0
+	for d, c := range counts {
+		if c > bestCount || (c == bestCount && d > best) {
+			best, bestCount = d, c
+		}
+	}
+	if best == "" {
+		return time.Time{}, false
+	}
+	t, err := time.Parse("2006-01-02", best)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return t, true
+}
+
 func main() {
 	args := os.Args[1:]
 	exeDir, _ := os.Getwd()
@@ -207,6 +256,10 @@ func main() {
 	}
 
 	var b strings.Builder
+	if d, ok := modeDate(rows); ok {
+		fmt.Fprintf(&b, "slow queries for - %s\n\n", d.Format("January 2, 2006"))
+		fmt.Fprintf(&b, "total slow queries - [%s](%s)\n\n", humanInt(float64(len(rows))), buildCloudWatchLink(d))
+	}
 	b.WriteString("# Slow Query Frequency Report\n\n")
 	for i, g := range top {
 		fmt.Fprintf(&b, "### %d. %d× — max %ss\n\n", i+1, g.count, f2(g.maxQueryTime, 2))
